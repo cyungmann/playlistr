@@ -1,0 +1,2 @@
+spotify-client-id: _env:SPOTIFY_CLIENT_ID
+spotify-client-secret: _env:SPOTIFY_CLIENT_SECRET
