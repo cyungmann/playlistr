@@ -14,16 +14,16 @@ import Data.Semigroup ((<>))
 import Data.Text (Text)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Yaml.Config (loadYamlSettingsArgs, useEnv)
+import Debug.Trace (traceShowM)
 import Network.HTTP.Client.TLS (newTlsManager)
 import Prelude
   ( Either(Left, Right)
   , Eq
   , IO
   , Int
-  , Maybe
+  , Maybe(Just)
   , Show
   , ($)
-  , (++)
   , (<$>)
   , (<*>)
   , print
@@ -100,10 +100,10 @@ instance ToHttpApiData Authorization where
     "Bearer " <> _authorizationAccessToken authorization
 
 type SpotifyAccountsApi
-   = "token" :> BasicAuth "spotify" () :> ReqBody '[ FormUrlEncoded] TokenRequest :> Post '[ JSON] TokenResponse
+   = "token" :> BasicAuth "spotify" () :> ReqBody '[ FormUrlEncoded] TokenRequest :> Post '[JSON] TokenResponse
 
 type SpotifyApi
-   = "browse/featured-playlists" :> Header "Authorization" Authorization :> Get '[ JSON] FeaturedPlaylistsResponse
+   = "browse" :> "featured-playlists" :> Header "Authorization" Authorization :> Get '[JSON] FeaturedPlaylistsResponse
 
 spotifyAccountsApi :: Proxy SpotifyAccountsApi
 spotifyAccountsApi = Proxy
@@ -123,6 +123,11 @@ queries spotifyClientId spotifyClientSecret =
     (BasicAuthData (encodeUtf8 spotifyClientId) (encodeUtf8 spotifyClientSecret))
     (TokenRequest "client_credentials")
 
+queries' :: Text -> ClientM FeaturedPlaylistsResponse
+queries' accessToken = do
+  traceShowM accessToken
+  getFeaturedPlaylists $ Just (Authorization accessToken)
+
 main :: IO ()
 main = do
   putStrLn "Hello, Haskell!"
@@ -136,6 +141,13 @@ main = do
          (_configurationSpotifyClientSecret config))
       (ClientEnv manager (BaseUrl Https "accounts.spotify.com" 443 "api"))
   case res of
-    Left err -> putStrLn $ "Error: " ++ show err
-    Right tokenResponse -> print tokenResponse
-
+    Left err -> showError err
+    Right tokenResponse -> do
+      print tokenResponse
+      res' <- runClientM (queries' (_tokenResponseAccessToken tokenResponse)) (ClientEnv manager (BaseUrl Https "api.spotify.com" 443 "v1"))
+      case res' of
+        Left err -> showError err
+        Right featuredPlaylistsResponse -> print featuredPlaylistsResponse
+  where
+    showError :: Show a => a -> IO ()
+    showError err = putStrLn $ "Error: " <> show err
