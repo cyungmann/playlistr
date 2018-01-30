@@ -8,6 +8,7 @@
 module Main where
 
 import Control.Applicative (empty)
+import Control.Monad.Except (ExceptT(ExceptT), liftIO, runExceptT)
 import Data.Aeson (FromJSON, Value(Object), (.:), parseJSON)
 import Data.Proxy (Proxy(Proxy))
 import Data.Semigroup ((<>))
@@ -17,8 +18,7 @@ import Data.Yaml.Config (loadYamlSettingsArgs, useEnv)
 import Debug.Trace (traceShowM)
 import Network.HTTP.Client.TLS (newTlsManager)
 import Prelude
-  ( Either(Left, Right)
-  , Eq
+  ( Eq
   , IO
   , Int
   , Maybe(Just)
@@ -26,10 +26,11 @@ import Prelude
   , ($)
   , (<$>)
   , (<*>)
+  , (.)
+  , either
   , print
   , pure
   , putStrLn
-  , show
   )
 import Servant.API
   ( (:>)
@@ -134,20 +135,11 @@ main = do
   config :: Configuration <- loadYamlSettingsArgs [] useEnv
   print config
   manager <- newTlsManager
-  res <-
-    runClientM
-      (queries
-         (_configurationSpotifyClientId config)
-         (_configurationSpotifyClientSecret config))
-      (ClientEnv manager (BaseUrl Https "accounts.spotify.com" 443 "api"))
-  case res of
-    Left err -> showError err
-    Right tokenResponse -> do
-      print tokenResponse
-      res' <- runClientM (queries' (_tokenResponseAccessToken tokenResponse)) (ClientEnv manager (BaseUrl Https "api.spotify.com" 443 "v1"))
-      case res' of
-        Left err -> showError err
-        Right featuredPlaylistsResponse -> print featuredPlaylistsResponse
-  where
-    showError :: Show a => a -> IO ()
-    showError err = putStrLn $ "Error: " <> show err
+  result <- runExceptT $ do
+    tokenResponse <- ExceptT . liftIO $ runClientM (queries
+                      (_configurationSpotifyClientId config)
+                      (_configurationSpotifyClientSecret config))
+                    (ClientEnv manager (BaseUrl Https "accounts.spotify.com" 443 "api"))
+    liftIO . print $ tokenResponse
+    ExceptT . liftIO $ runClientM (queries' (_tokenResponseAccessToken tokenResponse)) (ClientEnv manager (BaseUrl Https "api.spotify.com" 443 "v1"))
+  either print print result
