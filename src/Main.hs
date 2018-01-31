@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -9,16 +10,18 @@ module Main where
 
 import Control.Applicative (empty)
 import Control.Monad.Except (ExceptT(ExceptT), liftIO, runExceptT)
-import Data.Aeson (FromJSON, Value(Object), (.:), parseJSON)
+import Data.Aeson (FromJSON, Value(Object), (.:), camelTo2, defaultOptions, fieldLabelModifier, genericParseJSON, parseJSON)
 import Data.Proxy (Proxy(Proxy))
 import Data.Semigroup ((<>))
-import Data.Text (Text)
+import Data.Text (Text, pack, replace, unpack)
 import Data.Text.Encoding (encodeUtf8)
 import Data.Yaml.Config (loadYamlSettingsArgs, useEnv)
 import Debug.Trace (traceShowM)
+import GHC.Generics (Generic)
 import Network.HTTP.Client.TLS (newTlsManager)
 import Prelude
-  ( Eq
+  ( Bool
+  , Eq
   , IO
   , Int
   , Maybe(Just)
@@ -28,8 +31,6 @@ import Prelude
   , (<*>)
   , (.)
   , either
-  , print
-  , pure
   , putStrLn
   )
 import Servant.API
@@ -53,6 +54,7 @@ import Servant.Client
   , client
   , runClientM
   )
+import Text.Show.Pretty (pPrint)
 import Web.FormUrlEncoded (ToForm, toForm)
 
 data Configuration = Configuration
@@ -77,20 +79,57 @@ data TokenResponse = TokenResponse
   { _tokenResponseAccessToken :: Text
   , _tokenResponseTokenType :: Text
   , _tokenResponseExpiresIn :: Int
-  } deriving (Eq, Show)
+  } deriving (Eq, Generic, Show)
 
 instance FromJSON TokenResponse where
-  parseJSON (Object o) =
-    TokenResponse <$> o .: "access_token" <*> o .: "token_type" <*>
-    o .: "expires_in"
-  parseJSON _ = empty
+  parseJSON = genericParseJSON $ defaultOptions
+                                  { fieldLabelModifier = camelTo2 '_' . unpack . replace "_tokenResponse" "" . pack
+                                  }
 
-data FeaturedPlaylistsResponse =
-  FeaturedPlaylistsResponse
-  deriving (Eq, Show)
+data Paging a = Paging
+  { _pagingHref :: Text
+  , _pagingItems :: [a]
+  , _pagingLimit :: Int
+  , _pagingNext :: Maybe Text
+  , _pagingOffset :: Int
+  , _pagingPrevious :: Maybe Text
+  , _pagingTotal :: Int
+  } deriving (Eq, Generic, Show)
+
+instance (FromJSON a) => FromJSON (Paging a) where
+  parseJSON = genericParseJSON $ defaultOptions
+                                  { fieldLabelModifier = camelTo2 '_' . unpack . replace "_paging" "" . pack
+                                  }
+
+data SimplifiedPlaylist = SimplifiedPlaylist
+  { _simplifiedPlaylistCollaborative :: Bool
+  --, _simplifiedPlaylistExternalUrls :: ExternalUrl
+  , _simplifiedPlaylistHref :: Text
+  , _simplifiedPlaylistId :: Text
+  --, _simplifiedPlaylistImages :: [Image]
+  , _simplifiedPlaylistName :: Text
+  --, _simplifiedPlaylistOwner :: User
+  , _simplifiedPlaylistPublic :: Maybe Bool
+  , _simplifiedPlaylistSnapshotId :: Text
+  --, _simplifiedPlaylistTracks :: Tracks
+  , _simplifiedPlaylistType :: Text
+  , _simplifiedPlaylistUri :: Text
+  } deriving (Eq, Generic, Show)
+
+instance FromJSON SimplifiedPlaylist where
+  parseJSON = genericParseJSON $ defaultOptions
+                                  { fieldLabelModifier = camelTo2 '_' . unpack . replace "_simplifiedPlaylist" "" . pack
+                                  }
+
+data FeaturedPlaylistsResponse = FeaturedPlaylistsResponse
+  { _featuredPlaylistsResponseMessage :: Text
+  , _featuredPlaylistsResponsePlaylists :: Paging SimplifiedPlaylist
+  } deriving (Eq, Show)
 
 instance FromJSON FeaturedPlaylistsResponse where
-  parseJSON _ = pure FeaturedPlaylistsResponse
+  parseJSON (Object o) = FeaturedPlaylistsResponse <$> o .: "message"
+                                                   <*> o .: "playlists"
+  parseJSON _ = empty
 
 newtype Authorization = Authorization
   { _authorizationAccessToken :: Text
@@ -101,7 +140,7 @@ instance ToHttpApiData Authorization where
     "Bearer " <> _authorizationAccessToken authorization
 
 type SpotifyAccountsApi
-   = "token" :> BasicAuth "spotify" () :> ReqBody '[ FormUrlEncoded] TokenRequest :> Post '[JSON] TokenResponse
+   = "token" :> BasicAuth "spotify" () :> ReqBody '[FormUrlEncoded] TokenRequest :> Post '[JSON] TokenResponse
 
 type SpotifyApi
    = "browse" :> "featured-playlists" :> Header "Authorization" Authorization :> Get '[JSON] FeaturedPlaylistsResponse
@@ -133,13 +172,13 @@ main :: IO ()
 main = do
   putStrLn "Hello, Haskell!"
   config :: Configuration <- loadYamlSettingsArgs [] useEnv
-  print config
+  pPrint config
   manager <- newTlsManager
   result <- runExceptT $ do
     tokenResponse <- ExceptT . liftIO $ runClientM (queries
                       (_configurationSpotifyClientId config)
                       (_configurationSpotifyClientSecret config))
                     (ClientEnv manager (BaseUrl Https "accounts.spotify.com" 443 "api"))
-    liftIO . print $ tokenResponse
+    liftIO . pPrint $ tokenResponse
     ExceptT . liftIO $ runClientM (queries' (_tokenResponseAccessToken tokenResponse)) (ClientEnv manager (BaseUrl Https "api.spotify.com" 443 "v1"))
-  either print print result
+  either pPrint pPrint result
