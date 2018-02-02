@@ -4,7 +4,6 @@
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE UnicodeSyntax       #-}
 {-# LANGUAGE Unsafe              #-}
 
 module Main where
