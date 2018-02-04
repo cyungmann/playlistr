@@ -1,2 +1,4 @@
 spotify-client-id: _env:SPOTIFY_CLIENT_ID
 spotify-client-secret: _env:SPOTIFY_CLIENT_SECRET
+database-user: _env:DATABASE_USER
+database-password: _env:DATABASE_PASSWORD

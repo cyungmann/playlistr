@@ -32,7 +32,7 @@ lint: FORCE
 
 .PHONY: run
 run: FORCE
-	cabal run -- ./private/config.yaml
+	cabal run -- ./.private/config.yaml
 
 .PHONY: repl
 repl: FORCE

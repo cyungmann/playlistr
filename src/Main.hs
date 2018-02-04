@@ -11,6 +11,9 @@ module Main where
 import Control.Applicative
   ( empty
   )
+import Control.Exception.Base
+  ( bracket
+  )
 import Control.Monad.Except
   ( ExceptT(ExceptT)
   , liftIO
@@ -45,6 +48,13 @@ import Data.Yaml.Config
   ( loadYamlSettingsArgs
   , useEnv
   )
+import Database.PostgreSQL.Simple
+  ( close
+  , connect
+  , connectPassword
+  , connectUser
+  , defaultConnectInfo
+  )
 import Debug.Trace
   ( traceShowM
   )
@@ -61,6 +71,7 @@ import Prelude
   , Int
   , Maybe(Just)
   , Show
+  , String
   , either
   , putStrLn
   , ($)
@@ -100,11 +111,15 @@ import Web.FormUrlEncoded
 data Configuration = Configuration
   { _configurationSpotifyClientId     :: Text
   , _configurationSpotifyClientSecret :: Text
+  , _configurationDatabaseUser        :: String
+  , _configurationDatabasePassword    :: String
   } deriving (Eq, Show)
 
 instance FromJSON Configuration where
   parseJSON (Object o) =
-    Configuration <$> o .: "spotify-client-id" <*> o .: "spotify-client-secret"
+    Configuration <$> o .: "spotify-client-id" <*> o .: "spotify-client-secret" <*>
+    o .: "database-user" <*>
+    o .: "database-password"
   parseJSON _ = empty
 
 newtype TokenRequest = TokenRequest
@@ -220,6 +235,14 @@ main = do
   putStrLn "Hello, Haskell!"
   config :: Configuration <- loadYamlSettingsArgs [] useEnv
   pPrint config
+  bracket
+    (connect
+       defaultConnectInfo
+         { connectUser = _configurationDatabaseUser config
+         , connectPassword = _configurationDatabasePassword config
+         })
+    close
+    (\_ -> pPrint ("yay!" :: Text))
   manager <- newTlsManager
   result <-
     runExceptT $ do
