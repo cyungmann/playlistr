@@ -1,27 +1,33 @@
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE DeriveGeneric       #-}
-{-# LANGUAGE OverloadedLists     #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators       #-}
-{-# LANGUAGE Unsafe              #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedLists            #-}
+{-# LANGUAGE OverloadedStrings          #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeOperators              #-}
+{-# LANGUAGE TypeSynonymInstances       #-}
+{-# LANGUAGE Unsafe                     #-}
 
 module Main where
 
-import Control.Applicative
+import           Control.Applicative
   ( empty
   )
-import Control.Exception.Base
+import           Control.Exception.Base
   ( bracket
   )
-import Control.Monad.Except
+import           Control.Monad.Except
   ( ExceptT(ExceptT)
   , liftIO
   , runExceptT
   )
-import Data.Aeson
+import           Data.Aeson
   ( FromJSON
+  , GFromJSON
   , Value(Object)
+  , Zero
   , camelTo2
   , defaultOptions
   , fieldLabelModifier
@@ -29,42 +35,53 @@ import Data.Aeson
   , parseJSON
   , (.:)
   )
-import Data.Proxy
+import           Data.Aeson.Types
+  ( Parser
+  )
+import qualified Data.Map.Strict            as Map
+  ( Map
+  )
+import           Data.Proxy
   ( Proxy(Proxy)
   )
-import Data.Semigroup
+import           Data.Semigroup
   ( (<>)
   )
-import Data.Text
+import           Data.Text
   ( Text
   , pack
   , replace
   , unpack
   )
-import Data.Text.Encoding
+import           Data.Text.Encoding
   ( encodeUtf8
   )
-import Data.Yaml.Config
+import           Data.Time
+  ( NominalDiffTime
+  , UTCTime
+  )
+import           Data.Yaml.Config
   ( loadYamlSettingsArgs
   , useEnv
   )
-import Database.PostgreSQL.Simple
+import           Database.PostgreSQL.Simple
   ( close
   , connect
   , connectPassword
   , connectUser
   , defaultConnectInfo
   )
-import Debug.Trace
+import           Debug.Trace
   ( traceShowM
   )
-import GHC.Generics
+import           GHC.Generics
   ( Generic
+  , Rep
   )
-import Network.HTTP.Client.TLS
+import           Network.HTTP.Client.TLS
   ( newTlsManager
   )
-import Prelude
+import           Prelude
   ( Bool
   , Eq
   , IO
@@ -79,7 +96,7 @@ import Prelude
   , (<$>)
   , (<*>)
   )
-import Servant.API
+import           Servant.API
   ( (:>)
   , BasicAuth
   , BasicAuthData(BasicAuthData)
@@ -92,7 +109,7 @@ import Servant.API
   , ToHttpApiData
   , toQueryParam
   )
-import Servant.Client
+import           Servant.Client
   ( BaseUrl(BaseUrl)
   , ClientEnv(ClientEnv)
   , ClientM
@@ -100,13 +117,19 @@ import Servant.Client
   , client
   , runClientM
   )
-import Text.Show.Pretty
+import           Text.Show.Pretty
   ( pPrint
   )
-import Web.FormUrlEncoded
+import           Web.FormUrlEncoded
   ( ToForm
   , toForm
   )
+
+parseJSON' :: (Generic a, GFromJSON Zero (Rep a)) => Text -> Value -> Parser a
+parseJSON' prefix =
+  genericParseJSON $
+  defaultOptions
+    {fieldLabelModifier = camelTo2 '_' . unpack . replace prefix "" . pack}
 
 data Configuration = Configuration
   { _configurationSpotifyClientId     :: Text
@@ -137,65 +160,184 @@ data TokenResponse = TokenResponse
   } deriving (Eq, Generic, Show)
 
 instance FromJSON TokenResponse where
-  parseJSON =
-    genericParseJSON $
-    defaultOptions
-      { fieldLabelModifier =
-          camelTo2 '_' . unpack . replace "_tokenResponse" "" . pack
-      }
+  parseJSON = parseJSON' "_tokenResponse"
 
 data Paging a = Paging
   { _pagingHref     :: Text
-  , _pagingItems    :: [a]
-  , _pagingLimit    :: Int
+  , _pagingItems    :: Maybe [a]
+  , _pagingLimit    :: Maybe Int
   , _pagingNext     :: Maybe Text
-  , _pagingOffset   :: Int
+  , _pagingOffset   :: Maybe Int
   , _pagingPrevious :: Maybe Text
   , _pagingTotal    :: Int
   } deriving (Eq, Generic, Show)
 
 instance (FromJSON a) => FromJSON (Paging a) where
-  parseJSON =
-    genericParseJSON $
-    defaultOptions
-      {fieldLabelModifier = camelTo2 '_' . unpack . replace "_paging" "" . pack}
+  parseJSON = parseJSON' "_paging"
+
+newtype ExternalUrl =
+  ExternalUrl (Map.Map Text Text)
+  deriving (Eq, FromJSON, Generic, Show)
+
+data Followers = Followers
+  { _followersHref  :: Maybe Text
+  , _followersTotal :: Int
+  } deriving (Eq, Generic, Show)
+
+instance FromJSON Followers where
+  parseJSON = parseJSON' "_followers"
+
+data Image = Image
+  { _imageHeight :: Maybe Int
+  , _imageUrl    :: Text
+  , _imageWidth  :: Maybe Int
+  } deriving (Eq, Generic, Show)
+
+instance FromJSON Image where
+  parseJSON = parseJSON' "_image"
+
+data User = User
+  { _userDisplayName  :: Text
+  , _userExternalUrls :: ExternalUrl
+  , _userFollowers    :: Maybe Followers
+  , _userHref         :: Text
+  , _userId           :: Text
+  , _userImages       :: Maybe [Image]
+  , _userType         :: String
+  , _userUri          :: Text
+  } deriving (Eq, Generic, Show)
+
+instance FromJSON User where
+  parseJSON = parseJSON' "_user"
+
+data SimplifiedArtist = SimplifiedArtist
+  { _simplifiedArtistExternalUrls :: ExternalUrl
+  , _simplifiedArtistHref         :: Text
+  , _simplifiedArtistId           :: Text
+  , _simplifiedArtistName         :: Text
+  , _simplifiedArtistType         :: Text
+  , _simplifiedArtistUri          :: Text
+  } deriving (Eq, Generic, Show)
+
+instance FromJSON SimplifiedArtist where
+  parseJSON = parseJSON' "_simplifiedArtist"
+
+data SimplifiedAlbum = SimplifiedAlbum
+  { _simplifiedAlbumAlbumType        :: Text
+  , _simplifiedAlbumArtists          :: [SimplifiedArtist]
+  , _simplifiedAlbumAvailableMarkets :: [Text]
+  , _simplifiedAlbumExternalUrls     :: ExternalUrl
+  , _simplifiedAlbumHref             :: Text
+  , _simplifiedAlbumId               :: Text
+  , _simplifiedAlbumImages           :: [Image]
+  , _simplifiedAlbumName             :: Text
+  , _simplifiedAlbumType             :: Text
+  , _simplifiedAlbumUri              :: Text
+  } deriving (Eq, Generic, Show)
+
+instance FromJSON SimplifiedAlbum where
+  parseJSON = parseJSON' "_simplifiedAlbum"
+
+newtype ExternalId =
+  ExternalId (Map.Map Text Text)
+  deriving (Eq, FromJSON, Generic, Show)
+
+data LinkedTrack = LinkedTrack
+  { _linkedTrackExternalUrls :: ExternalUrl
+  , _linkedTrackHref         :: Text
+  , _linkedTrackId           :: Text
+  , _linkedTrackType         :: Text
+  , _linkedTrackUri          :: Text
+  } deriving (Eq, Generic, Show)
+
+instance FromJSON LinkedTrack where
+  parseJSON = parseJSON' "_linked"
+
+data Restrictions = Restrictions
+  { _restrictionsReason :: Text
+  } deriving (Eq, Generic, Show)
+
+instance FromJSON Restrictions where
+  parseJSON = parseJSON' "_restrictions"
+
+data Track = Track
+  { _trackAlbum            :: SimplifiedAlbum
+  , _trackArtists          :: [SimplifiedArtist]
+  , _trackAvailableMarkets :: [Text]
+  , _trackDiscNumber       :: Int
+  , _trackDuration         :: NominalDiffTime
+  , _trackExplicit         :: Bool
+  , _trackExternalIds      :: ExternalId
+  , _trackExternalHrefs    :: ExternalUrl
+  , _trackHref             :: Text
+  , _trackId               :: Text
+  , _trackIsPlayable       :: Bool
+  , _trackLinkedFrom       :: LinkedTrack
+  , _trackRestrictions     :: Restrictions
+  , _trackName             :: Text
+  , _trackPopularity       :: Int
+  , _trackPreviewUrl       :: Text
+  , _trackTrackNumber      :: Int
+  , _trackType             :: Text
+  , _trackUri              :: Text
+  } deriving (Eq, Generic, Show)
+
+instance FromJSON Track where
+  parseJSON = parseJSON' "_track"
+
+data PlaylistTrack = PlaylistTrack
+  { _playlistTrackAddedAt :: UTCTime
+  , _playlistTrackAddedBy :: User
+  , _playlistTrackIsLocal :: Bool
+  , _playlistTrackTrack   :: Track
+  } deriving (Eq, Generic, Show)
+
+data Playlist = Playlist
+  { _playlistCollaborative :: Bool
+  , _playlistDescription   :: Text
+  , _playlistExternalUrls  :: ExternalUrl
+  , _playlistFollowers     :: Followers
+  , _playlistHref          :: Text
+  , _playlistId            :: Text
+  , _playlistImages        :: [Image]
+  , _playlistName          :: Text
+  , _playlistOwner         :: User
+  , _playlistPublic        :: Maybe Bool
+  , _playlistSnapshotId    :: Text
+  , _playlistTracks        :: Paging PlaylistTrack
+  , _playlistType          :: Text
+  , _playlistUri           :: Text
+  } deriving (Eq, Generic, Show)
 
 data SimplifiedPlaylist = SimplifiedPlaylist
   { _simplifiedPlaylistCollaborative :: Bool
-  --, _simplifiedPlaylistExternalUrls :: ExternalUrl
+  , _simplifiedPlaylistExternalUrls  :: ExternalUrl
   , _simplifiedPlaylistHref          :: Text
   , _simplifiedPlaylistId            :: Text
-  --, _simplifiedPlaylistImages :: [Image]
+  , _simplifiedPlaylistImages        :: [Image]
   , _simplifiedPlaylistName          :: Text
-  --, _simplifiedPlaylistOwner :: User
+  , _simplifiedPlaylistOwner         :: User
   , _simplifiedPlaylistPublic        :: Maybe Bool
   , _simplifiedPlaylistSnapshotId    :: Text
-  --, _simplifiedPlaylistTracks :: Tracks
+  , _simplifiedPlaylistTracks        :: Paging Track
   , _simplifiedPlaylistType          :: Text
   , _simplifiedPlaylistUri           :: Text
   } deriving (Eq, Generic, Show)
 
 instance FromJSON SimplifiedPlaylist where
-  parseJSON =
-    genericParseJSON $
-    defaultOptions
-      { fieldLabelModifier =
-          camelTo2 '_' . unpack . replace "_simplifiedPlaylist" "" . pack
-      }
+  parseJSON = parseJSON' "_simplifiedPlaylist"
 
 data FeaturedPlaylistsResponse = FeaturedPlaylistsResponse
   { _featuredPlaylistsResponseMessage   :: Text
   , _featuredPlaylistsResponsePlaylists :: Paging SimplifiedPlaylist
-  } deriving (Eq, Show)
+  } deriving (Eq, Generic, Show)
 
 instance FromJSON FeaturedPlaylistsResponse where
-  parseJSON (Object o) =
-    FeaturedPlaylistsResponse <$> o .: "message" <*> o .: "playlists"
-  parseJSON _ = empty
+  parseJSON = parseJSON' "_featuredPlaylistsResponse"
 
 newtype Authorization = Authorization
   { _authorizationAccessToken :: Text
-  } deriving (Eq, Show)
+  } deriving (Eq, Generic, Show)
 
 instance ToHttpApiData Authorization where
   toQueryParam authorization =
