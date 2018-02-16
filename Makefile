@@ -46,3 +46,7 @@ watch: FORCE
 clean: FORCE
 	cabal clean
 	rm .*-stamp
+
+.PHONY: devtools
+devtools: FORCE
+	cabal install hlint stylish-haskell hindent

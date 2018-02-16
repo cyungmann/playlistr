@@ -38,7 +38,7 @@ import           Data.Aeson
 import           Data.Aeson.Types
   ( Parser
   )
-import qualified Data.Map.Strict            as Map
+import qualified Data.Map.Strict             as Map
   ( Map
   )
 import           Data.Proxy
@@ -81,6 +81,9 @@ import           GHC.Generics
 import           Network.HTTP.Client.TLS
   ( newTlsManager
   )
+import           Network.Wai.Handler.Warp
+  ( run
+  )
 import           Prelude
   ( Bool
   , Eq
@@ -91,6 +94,7 @@ import           Prelude
   , String
   , either
   , putStrLn
+  , return
   , ($)
   , (.)
   , (<$>)
@@ -116,6 +120,32 @@ import           Servant.Client
   , Scheme(Https)
   , client
   , runClientM
+  )
+import           Servant.HTML.Blaze
+  ( HTML
+  )
+import           Servant.Server
+  ( Application
+  , Server
+  , serve
+  )
+import           Text.Blaze
+  ( (!)
+  )
+import           Text.Blaze.Html
+  ( Html
+  )
+import qualified Text.Blaze.Html5            as H
+  ( body
+  , docTypeHtml
+  , head
+  , meta
+  , span
+  , title
+  , toHtml
+  )
+import qualified Text.Blaze.Html5.Attributes as H
+  ( charset
   )
 import           Text.Show.Pretty
   ( pPrint
@@ -253,7 +283,7 @@ data LinkedTrack = LinkedTrack
 instance FromJSON LinkedTrack where
   parseJSON = parseJSON' "_linked"
 
-data Restrictions = Restrictions
+newtype Restrictions = Restrictions
   { _restrictionsReason :: Text
   } deriving (Eq, Generic, Show)
 
@@ -349,11 +379,27 @@ type SpotifyAccountsApi
 type SpotifyApi
    = "browse" :> "featured-playlists" :> Header "Authorization" Authorization :> Get '[ JSON] FeaturedPlaylistsResponse
 
+type PlaylistrApi = "index" :> Get '[ HTML] Html
+
 spotifyAccountsApi :: Proxy SpotifyAccountsApi
 spotifyAccountsApi = Proxy
 
 spotifyApi :: Proxy SpotifyApi
 spotifyApi = Proxy
+
+playlistrApi :: Proxy PlaylistrApi
+playlistrApi = Proxy
+
+playlistrApiServer :: Server PlaylistrApi
+playlistrApiServer =
+  (return . H.docTypeHtml) $ do
+    H.head $ do
+      H.meta ! H.charset "utf-8"
+      H.title . H.toHtml $ ("Hello, world!" :: String)
+    H.body . H.span . H.toHtml $ ("Hello, world!" :: String)
+
+playlistrApp :: Application
+playlistrApp = serve playlistrApi playlistrApiServer
 
 getToken :: BasicAuthData -> TokenRequest -> ClientM TokenResponse
 getToken = client spotifyAccountsApi
@@ -401,3 +447,4 @@ main = do
           (queries' (_tokenResponseAccessToken tokenResponse))
           (ClientEnv manager (BaseUrl Https "api.spotify.com" 443 "v1"))
   either pPrint pPrint result
+  run 8080 playlistrApp
