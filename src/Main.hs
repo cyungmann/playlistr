@@ -95,13 +95,15 @@ import           Prelude
   , either
   , putStrLn
   , return
+  , show
   , ($)
   , (.)
   , (<$>)
   , (<*>)
   )
 import           Servant.API
-  ( (:>)
+  ( (:<|>)((:<|>))
+  , (:>)
   , BasicAuth
   , BasicAuthData(BasicAuthData)
   , FormUrlEncoded
@@ -109,6 +111,7 @@ import           Servant.API
   , Header
   , JSON
   , Post
+  , QueryParam
   , ReqBody
   , ToHttpApiData
   , toQueryParam
@@ -126,6 +129,7 @@ import           Servant.HTML.Blaze
   )
 import           Servant.Server
   ( Application
+  , Handler
   , Server
   , serve
   )
@@ -138,14 +142,24 @@ import           Text.Blaze.Html
 import qualified Text.Blaze.Html5            as H
   ( body
   , docTypeHtml
+  , form
   , head
+  , input
+  , label
   , meta
   , span
   , title
   , toHtml
   )
 import qualified Text.Blaze.Html5.Attributes as H
-  ( charset
+  ( action
+  , charset
+  , for
+  , id
+  , method
+  , name
+  , type_
+  , value
   )
 import           Text.Show.Pretty
   ( pPrint
@@ -379,7 +393,8 @@ type SpotifyAccountsApi
 type SpotifyApi
    = "browse" :> "featured-playlists" :> Header "Authorization" Authorization :> Get '[ JSON] FeaturedPlaylistsResponse
 
-type PlaylistrApi = "index" :> Get '[ HTML] Html
+type PlaylistrApi
+   = "index" :> Get '[ HTML] Html :<|> "search" :> QueryParam "artist1" Text :> Get '[ HTML] Html
 
 spotifyAccountsApi :: Proxy SpotifyAccountsApi
 spotifyAccountsApi = Proxy
@@ -391,12 +406,31 @@ playlistrApi :: Proxy PlaylistrApi
 playlistrApi = Proxy
 
 playlistrApiServer :: Server PlaylistrApi
-playlistrApiServer =
-  (return . H.docTypeHtml) $ do
-    H.head $ do
-      H.meta ! H.charset "utf-8"
-      H.title . H.toHtml $ ("Hello, world!" :: String)
-    H.body . H.span . H.toHtml $ ("Hello, world!" :: String)
+playlistrApiServer = index :<|> search
+  where
+    index :: Handler Html
+    index =
+      (return . H.docTypeHtml) $ do
+        H.head $ do
+          H.meta ! H.charset "utf-8"
+          H.title . H.toHtml $ ("Hello, world!" :: String)
+        H.body $ do
+          H.span . H.toHtml $ ("Hello, world!" :: String)
+          H.form ! H.action "search" ! H.method "get" ! H.name "searchForm" $ do
+            H.label ! H.for "searchForm-artist1" $
+              H.toHtml ("Artist 1:" :: String)
+            H.input ! H.id "searchForm-artist1" ! H.type_ "text" !
+              H.name "artist1"
+            H.input ! H.type_ "submit" ! H.value "Search"
+    search :: Maybe Text -> Handler Html
+    search artist1 =
+      (return . H.docTypeHtml) $ do
+        H.head $ do
+          H.meta ! H.charset "utf-8"
+          H.title . H.toHtml $ ("Hello, world!" :: String)
+        H.body $ do
+          H.span . H.toHtml $ ("Hello, world!" :: String)
+          H.toHtml . show $ artist1
 
 playlistrApp :: Application
 playlistrApp = serve playlistrApi playlistrApiServer
