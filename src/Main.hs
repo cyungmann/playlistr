@@ -118,10 +118,10 @@ import           Servant.API
   )
 import           Servant.Client
   ( BaseUrl(BaseUrl)
-  , ClientEnv(ClientEnv)
   , ClientM
   , Scheme(Https)
   , client
+  , mkClientEnv
   , runClientM
   )
 import           Servant.HTML.Blaze
@@ -141,11 +141,15 @@ import           Text.Blaze.Html
   )
 import qualified Text.Blaze.Html5            as H
   ( body
+  , button
+  , div
   , docTypeHtml
   , form
   , head
+  , i
   , input
   , label
+  , link
   , meta
   , span
   , title
@@ -154,10 +158,15 @@ import qualified Text.Blaze.Html5            as H
 import qualified Text.Blaze.Html5.Attributes as H
   ( action
   , charset
+  , class_
+  , content
   , for
+  , href
   , id
+  , media
   , method
   , name
+  , rel
   , type_
   , value
   )
@@ -413,15 +422,33 @@ playlistrApiServer = index :<|> search
       (return . H.docTypeHtml) $ do
         H.head $ do
           H.meta ! H.charset "utf-8"
+          H.meta ! H.name "viewport" !
+            H.content "width=device-width, initial-scale=1.0"
           H.title . H.toHtml $ ("Hello, world!" :: String)
-        H.body $ do
-          H.span . H.toHtml $ ("Hello, world!" :: String)
+          H.link ! H.rel "stylesheet" !
+            H.href "//fonts.googleapis.com/icon?family=Material+Icons"
+          H.link ! H.rel "stylesheet" !
+            H.href
+              "//cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.min.css" !
+            H.type_ "text/css" !
+            H.media "screen,projection"
+        H.body . (H.div ! H.class_ "container") . (H.div ! H.class_ "row") $ do
+          (H.div ! H.class_ "col s12") . H.span . H.toHtml $
+            ("Hello, world!" :: String)
           H.form ! H.action "search" ! H.method "get" ! H.name "searchForm" $ do
-            H.label ! H.for "searchForm-artist1" $
-              H.toHtml ("Artist 1:" :: String)
-            H.input ! H.id "searchForm-artist1" ! H.type_ "text" !
-              H.name "artist1"
-            H.input ! H.type_ "submit" ! H.value "Search"
+            (H.div ! H.class_ "row") . (H.div ! H.class_ "col s6 input-field") $ do
+              H.input ! H.id "searchForm-artist1" ! H.type_ "text" !
+                H.class_ "validate" !
+                H.name "artist1"
+              H.label ! H.for "searchForm-artist1" ! H.class_ "active" $
+                H.toHtml ("Artist 1:" :: String)
+            (H.div ! H.class_ "row") . (H.div ! H.class_ "col s6") $
+              H.button ! H.class_ "btn waves-effect waves-light" !
+              H.type_ "submit" !
+              H.value "Search" !
+              H.name "action" $ do
+                "Submit"
+                H.i ! H.class_ "material-icons right" $ "send"
     search :: Maybe Text -> Handler Html
     search artist1 =
       (return . H.docTypeHtml) $ do
@@ -474,11 +501,11 @@ main = do
           (queries
              (_configurationSpotifyClientId config)
              (_configurationSpotifyClientSecret config))
-          (ClientEnv manager (BaseUrl Https "accounts.spotify.com" 443 "api"))
+          (mkClientEnv manager (BaseUrl Https "accounts.spotify.com" 443 "api"))
       liftIO . pPrint $ tokenResponse
       ExceptT . liftIO $
         runClientM
           (queries' (_tokenResponseAccessToken tokenResponse))
-          (ClientEnv manager (BaseUrl Https "api.spotify.com" 443 "v1"))
+          (mkClientEnv manager (BaseUrl Https "api.spotify.com" 443 "v1"))
   either pPrint pPrint result
   run 8080 playlistrApp

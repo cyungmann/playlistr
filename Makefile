@@ -6,11 +6,11 @@ OUT := dist/build/playlistr/playlistr
 all: $(OUT)
 
 $(OUT): $(SRCS)
-	cabal build
+	cabal --require-sandbox build
 
 define format-command =
-cabal exec hindent -- $(1)
-cabal exec stylish-haskell -- --inplace $(1)
+cabal --require-sandbox exec hindent -- $(1)
+cabal --require-sandbox exec stylish-haskell -- --inplace $(1)
 endef
 
 .format-stamp: $(SRCS)
@@ -23,7 +23,7 @@ format: .format-stamp
 FORCE:
 
 define lint-command =
-cabal exec hlint -- lint $(1)
+cabal --require-sandbox exec hlint -- lint $(1)
 endef
 
 .PHONY: lint
@@ -32,21 +32,21 @@ lint: FORCE
 
 .PHONY: run
 run: FORCE
-	cabal run -- ./.private/config.yaml
+	cabal --require-sandbox run -- ./.private/config.yaml
 
 .PHONY: repl
 repl: FORCE
-	cabal repl --ghc-options="-Wwarn"
+	cabal --require-sandbox repl --ghc-options="-Wwarn"
 
 .PHONY: watch
 watch: FORCE
-	cabal exec ghcid -- --command='cabal repl --ghc-options="-Wwarn"'
+	cabal --require-sandbox exec ghcid -- --command='cabal repl --ghc-options="-Wwarn"'
 
 .PHONY: clean
 clean: FORCE
-	cabal clean
+	cabal --require-sandbox clean
 	rm .*-stamp
 
 .PHONY: devtools
 devtools: FORCE
-	cabal install hlint stylish-haskell hindent
+	cabal --require-sandbox install --force-reinstalls ghcid hlint stylish-haskell hindent
